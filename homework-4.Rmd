@@ -1,12 +1,30 @@
 ---
 title: 'Homework 4: Bags, Forests, Boosts, oh my'
-author: "Your Name Goes Here"
-date: "2/28/2019"
+author: "Max Mershon"
+date: "3/5/2019"
 output: github_document
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libs, message = F, warning = F, include = F}
+library(tidyverse)
+library(broom)
+library(glmnet)
+library(caret)
+library(ISLR)
+library(janitor)
+library(stringr)
+library(rpart)
+library(rpart.plot)
+library(partykit)
+library(randomForest)
+library(MASS)
+library(gbm)
+library(tree)
+theme_set(theme_bw())
 ```
 
 ## Problem 1
@@ -15,6 +33,44 @@ Problem 7 from Chapter 8 in the text. To be specific, please use a sequence of
 `ntree` from 25 to 500 in steps of 25 and `mtry` from 3 to 9 for by 1. 
 
 ## Answer 1
+```{r}
+set.seed(123)
+df <- tbl_df(Boston)
+inTraining <- createDataPartition(df$medv, p = .75, list = F)
+training <- df[inTraining, ]
+testing  <- df[-inTraining, ]
+```
+
+```{r}
+n.trees = seq(25, 500, by = 25)
+results_final = data.frame(mtry = numeric(), RMSE = numeric(), tree = numeric())
+
+for(x in n.trees){
+  rf_boston <- train(medv ~ ., 
+                        data = training,
+                        method = "rf",
+                        ntree = x,
+                        importance = T,
+                        tuneGrid = data.frame(mtry = 3:9))
+  
+  results <- rf_boston$results[1:2]
+  results$tree = x
+  results_final <- rbind(results_final, results)
+}
+
+results_final
+```
+
+```{r}
+results_final$mtry <- as.character(results_final$mtry)
+results_final
+```
+
+```{r}
+ggplot(results_final, aes(x=tree, y=RMSE, colour=mtry, group=mtry)) +
+  geom_line()
+```
+
 
 ## Problem 2
 
@@ -22,8 +78,116 @@ Problem 8 from Chapter 8 in the text. Set your seed with 9823 and split into
 train/test using 50\% of your data in each split. In addition to 
 parts (a) - (e), do the following:
 
-1. Fit a gradient-boosted tree to the training data and report the estimated 
-test MSE. 
-2. Fit a multiple regression model to the training data and report the 
-estimated test MSE
+1. Fit a gradient-boosted tree to the training data and report the estimated test MSE. 
+2. Fit a multiple regression model to the training data and report the estimated test MSE
 3. Summarize your results. 
+
+### 8.a.
+```{r}
+set.seed(9823)
+df <- tbl_df(Carseats)
+inTraining <- createDataPartition(df$Sales, p = .5, list = F)
+training <- df[inTraining, ]
+testing  <- df[-inTraining, ]
+```
+
+### 8.b. - Decision Tree
+```{r}
+tree.carseats_reg = tree(training$Sales ~ ., training)
+summary(tree.carseats_reg)
+```
+
+```{r}
+plot(tree.carseats_reg)
+text(tree.carseats_reg, pretty = 0)
+```
+
+#### Decision Tree - Mean Squared Error
+```{r}
+tree.pred_reg = predict(tree.carseats_reg, testing)
+mean((tree.pred_reg - testing$Sales)^2)
+```
+
+### 8c - Pruned Decision Tree
+```{r}
+cv.carseats_reg = cv.tree(tree.carseats_reg)
+plot(cv.carseats_reg$size, cv.carseats_reg$dev, type = "b")
+```
+
+```{r}
+prune.carseats_reg = prune.tree(tree.carseats_reg, best = 5)
+plot(prune.carseats_reg)
+text(prune.carseats_reg, pretty = 0)
+```
+
+#### Pruned Decision Tree - Mean Squared Error
+```{r}
+prune.pred_reg = predict(prune.carseats_reg, testing)
+mean((prune.pred_reg - testing$Sales)^2)
+```
+
+### 8.d. - Bagging
+```{r}
+bag_sales <- randomForest(Sales ~ ., data = training, mtry = 10)
+bag_sales
+```
+
+#### Bagged Decision Trees - Mean Squared Error
+```{r}
+bag_sales_pred = predict(bag_sales, testing)
+mean((bag_sales_pred - testing$Sales)^2)
+```
+
+```{r}
+importance(bag_sales)
+```
+
+### 8.e. Random Forest
+```{r}
+rf_sales <- randomForest(Sales ~ ., data = training, mtry = 3)
+rf_sales
+```
+
+#### Random Forest - Mean Squared Error
+```{r}
+rf_sales_pred = predict(rf_sales, testing)
+mean((rf_sales_pred - testing$Sales)^2)
+```
+
+```{r}
+importance(rf_sales)
+```
+
+### Gradient Boosted
+```{r}
+gbm_sales <- train(Sales ~ ., data = training, method = "gbm", verbose = FALSE)
+gbm_sales
+```
+
+#### Boosted Random Forest - Mean Squared Error
+```{r}
+gbm_sales_pred = predict(gbm_sales, testing)
+mean((gbm_sales_pred - testing$Sales)^2)
+```
+
+### Linear Regression
+```{r}
+lr_sales <- lm(Sales ~ . , training)
+summary(lr_sales)
+```
+
+#### Linear Regression - Mean Squared Error
+```{r}
+lr_sales_pred = predict(lr_sales, testing)
+mean((lr_sales_pred - testing$Sales)^2)
+```
+
+### Summary of Results (MSE)
+Linear Regression = 1.01
+Gradient Boosted  = 1.77
+Bagged RF         = 3.05
+Random Forest     = 3.58
+Decision Tree     = 5.29
+Pruned Tree       = 5.29
+
+Conclusion: Linear Regression is the best model because it has the lowest prediciton error, is the simpliest, and offers greater interpretation of predictor variables.
